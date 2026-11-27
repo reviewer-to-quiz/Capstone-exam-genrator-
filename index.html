@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Automated Exam Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+   :root { --main: #7a1f2b; --accent: #d4a017; --bg: #f6f1ef; --ink: #2b1a1d; --line: #d9c9c6; }
+body { font-family: "Poppins", Arial, sans-serif; background: var(--bg); color: var(--ink); margin: 0; }
+header { background: var(--main); color: white; padding: 20px 16px; text-align: center;
+         border-bottom: 5px solid var(--accent); }
+header h1 { margin: 4px 0; font-size: 28px; }
+.school { margin: 0; font-weight: 600; color: var(--accent); }
+.byline { margin: 0; opacity: 0.9; }
+main { max-width: 650px; margin: 0 auto; padding: 24px 16px; }
+textarea { width: 100%; height: 170px; padding: 10px; font-size: 16px; box-sizing: border-box;
+           border: 2px solid var(--line); border-radius: 6px; font-family: inherit; }
+button { padding: 10px 16px; font-size: 16px; border: none; border-radius: 6px; font-family: inherit;
+         background: var(--main); color: white; cursor: pointer; margin: 4px 4px 4px 0; }
+button:hover { background: #5c1620; }
+.option { display: block; width: 100%; text-align: left; background: white; color: var(--ink);
+          border: 2px solid var(--line); }
+.option:hover:enabled { border-color: var(--accent); background: white; }
+.correct { background: #dcfce7 !important; border-color: #15803d; }
+.wrong { background: #fee2e2 !important; border-color: #b91c1c; }
+#prompt { font-size: 20px; }
+#progress, #timer { font-weight: 600; margin: 4px 0; }
+#error { color: #b91c1c; }
+.missed { background: white; border-left: 5px solid #b91c1c; padding: 8px 12px; margin-bottom: 10px; }
+.missed p { margin: 4px 0; }
+.yours { color: #b91c1c; }
+.right { color: #15803d; }
+[hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+  <p class="school">EARIST</p>
+  <h1>Automated Exam Generator</h1>
+  <p class="byline">BSME-2A | By:Manlangit,Amora</p>
+</header>
+
+    <!-- Screen 1: paste notes -->
+    <div id="setup">
+      <textarea id="notes" placeholder="Paste your notes here..."></textarea>
+      <p>Questions (1-10): <input id="num" type="number" value="5" min="1" max="10"></p>
+      <button id="genBtn">Generate exam</button>
+      <button id="demoBtn">Load sample notes</button>
+      <p id="error"></p>
+    </div>
+
+    <!-- Screen 2: the quiz -->
+    <div id="quiz" hidden>
+      <p id="progress"></p>
+      <p id="timer"></p>
+      <p id="prompt"></p>
+      <div id="options"></div>
+      <p id="feedback"></p>
+      <button id="nextBtn" hidden>Next</button>
+    </div>
+
+    <!-- Screen 3: results -->
+    <div id="result" hidden>
+      <h2 id="finalScore"></h2>
+      <p id="status"></p>
+      <p id="time"></p>
+      <div id="review"></div>
+      <button id="againBtn">Back to notes</button>
+    </div>
+  </main>
+
+  <script>
+    // 1. QUESTION CLASS
+class Question {
+  constructor(prompt, options, correctIndex) {
+    this.prompt = prompt;
+    this.options = options;
+    this.correctIndex = correctIndex;
+  }
+  checkAnswer(index) {
+    return index === this.correctIndex;
+  }
+  getCorrectAnswerText() {
+    return String.fromCharCode(65 + this.correctIndex) + ") " + this.options[this.correctIndex];
+  }
+}
+// 2. TEXT PROCESSOR CLASS
+class TextProcessor {
+  constructor() {
+    this.stopWords = ["the","and","that","have","for","not","with","you","this","but",
+      "from","they","will","one","all","would","there","their","what","about","which",
+      "when","make","can","like","time","just","know","take","into","your","some",
+      "could","them","other","than","then","only","over","also","after","first",
+      "because","any","these","most","are","was","were","been","has","had","does",
+      "did","such","where"];
+  }
+
+  cleanWord(word) {
+    return word.replace(/[^A-Za-z0-9-]/g, "");   // remove punctuation
+  }
+
+  isStopWord(word) {
+    return this.stopWords.includes(word.toLowerCase());
+  }
+
+  shuffle(list) {
+    const a = [...list];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  generateQuiz(rawText, maxQuestions) {
+    const quiz = [];
+    const text = rawText.replace(/\s+/g, " ").trim();
+
+    // Step 1: split into sentences (ignore short ones)
+    const sentences = (text.match(/[^.!?]+[.!?]/g) || [])
+      .map(s => s.trim())
+      .filter(s => s.length > 25);
+
+    // Step 2: build a pool of long keywords for wrong answers
+    const pool = [];
+    for (const word of text.split(" ")) {
+      const c = this.cleanWord(word);
+      if (c.length >= 6 && !this.isStopWord(c) && !pool.includes(c)) pool.push(c);
+    }
+    const fallback = ["Thermodynamics","Kinematics","Entropy","Torque",
+                      "Velocity","Equilibrium","Conduction","Stress"];
+    for (const f of fallback) {
+      if (pool.length < 10 && !pool.includes(f)) pool.push(f);
+    }
+
+    // Step 3: make fill-in-the-blank questions
+    for (const sentence of this.shuffle(sentences)) {
+      if (quiz.length >= maxQuestions) break;
+      const words = sentence.split(" ");
+
+      // find the longest keyword in this sentence
+      let targetIdx = -1, target = "";
+      words.forEach((w, i) => {
+        const c = this.cleanWord(w);
+        if (c.length >= 6 && !this.isStopWord(c) && c.length > target.length) {
+          target = c;
+          targetIdx = i;
+        }
+      });
+      if (targetIdx === -1) continue;
+
+      // replace it with a blank
+      const blanked = words.map((w, i) => i === targetIdx ? "________" : w).join(" ");
+
+      // 1 correct + 3 wrong choices
+      const choices = [target];
+      for (const cand of this.shuffle(pool)) {
+        if (choices.length === 4) break;
+        if (cand.toLowerCase() !== target.toLowerCase() && !choices.includes(cand)) {
+          choices.push(cand);
+        }
+      }
+      const mixed = this.shuffle(choices);
+      quiz.push(new Question("Fill in the blank: " + blanked, mixed, mixed.indexOf(target)));
+    }
+    return quiz;
+  }
+}
+// 3. QUIZ ENGINE CLASS
+class QuizEngine {
+  constructor(questions) {
+    this.questions = questions;
+    this.index = 0;
+    this.score = 0;
+    this.missed = [];
+  }
+  get current() { return this.questions[this.index]; }
+  get total() { return this.questions.length; }
+  answer(choiceIndex) {
+    const correct = this.current.checkAnswer(choiceIndex);
+    if (correct) {
+      this.score++;
+    } else {
+      this.missed.push({ question: this.current, chosen: choiceIndex });
+    }
+    return correct;
+  }
+  next() { this.index++; }
+  isFinished() { return this.index >= this.total; }
+  get percentage() { return (this.score / this.total) * 100; }
+}
+
+// MAIN PROGRAM
+const $ = id => document.getElementById(id);   // shortcut for getElementById
+const processor = new TextProcessor();
+let engine;
+let timerId = null;
+let seconds = 0;
+
+function formatTime(s) {
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+}
+function startTimer() {
+  stopTimer();
+  seconds = 0;
+  $("timer").textContent = "Time: 0:00";
+  timerId = setInterval(() => {
+    seconds++;
+    $("timer").textContent = "Time: " + formatTime(seconds);
+  }, 1000);
+}
+function stopTimer() {
+  clearInterval(timerId);
+}
+
+const SAMPLE = "Thermodynamics is the branch of physics that deals with heat, work, and temperature, and their relation to energy and entropy. The first law of thermodynamics states that energy cannot be created or destroyed in an isolated system. Conduction is the transfer of internal energy by microscopic collisions of particles and movement of electrons within a body. Bernoulli principle states that an increase in the speed of a fluid occurs simultaneously with a decrease in static pressure. Torque is the rotational equivalent of linear force and depends on the magnitude of the force and the lever arm distance. Isentropic processes are idealized thermodynamic processes that are both adiabatic and reversible.";
+
+function showScreen(name) {
+  $("setup").hidden = name !== "setup";
+  $("quiz").hidden = name !== "quiz";
+  $("result").hidden = name !== "result";
+}
+
+function startQuiz() {
+  let n = parseInt($("num").value);
+  if (isNaN(n) || n < 1) n = 3;
+  if (n > 10) n = 10;
+
+  const questions = processor.generateQuiz($("notes").value, n);
+  if (questions.length === 0) {
+    $("error").textContent = "Not enough detailed sentences. Paste at least 3-5 complete sentences.";
+    return;
+  }
+  $("error").textContent = "";
+  engine = new QuizEngine(questions);
+  showQuestion();
+  showScreen("quiz");
+  startTimer();
+}
+
+function showQuestion() {
+  const q = engine.current;
+  $("progress").textContent = "Question " + (engine.index + 1) + " of " + engine.total +
+                              "  |  Score: " + engine.score;
+  $("prompt").textContent = q.prompt;
+  $("feedback").textContent = "";
+  $("nextBtn").hidden = true;
+  $("options").innerHTML = "";
+
+  q.options.forEach((text, i) => {
+    const btn = document.createElement("button");
+    btn.className = "option";
+    btn.textContent = "[" + String.fromCharCode(65 + i) + "] " + text;
+    btn.onclick = () => chooseOption(i);
+    $("options").appendChild(btn);
+  });
+}
+
+function chooseOption(i) {
+  const correct = engine.answer(i);
+  const buttons = document.querySelectorAll(".option");
+  buttons.forEach(b => b.disabled = true);
+  buttons[engine.current.correctIndex].classList.add("correct");
+
+  if (correct) {
+    $("feedback").textContent = "CORRECT!";
+  } else {
+    buttons[i].classList.add("wrong");
+    $("feedback").textContent = "INCORRECT. The right answer is: " + engine.current.getCorrectAnswerText();
+  }
+  $("nextBtn").hidden = false;
+}
+
+function showReview() {
+  const box = $("review");
+  box.innerHTML = "";
+  if (engine.missed.length === 0) {
+    box.textContent = "Perfect score! No missed questions.";
+    return;
+  }
+  const title = document.createElement("h3");
+  title.textContent = "Review: questions you missed";
+  box.appendChild(title);
+
+  engine.missed.forEach(m => {
+    const div = document.createElement("div");
+    div.className = "missed";
+
+    const q = document.createElement("p");
+    q.textContent = m.question.prompt;
+
+    const yours = document.createElement("p");
+    yours.className = "yours";
+    yours.textContent = "Your answer: " + m.question.options[m.chosen];
+
+    const right = document.createElement("p");
+    right.className = "right";
+    right.textContent = "Correct answer: " + m.question.getCorrectAnswerText();
+
+    div.append(q, yours, right);
+    box.appendChild(div);
+  });
+}
+
+function nextQuestion() {
+  engine.next();
+  if (engine.isFinished()) {
+    stopTimer();
+    $("finalScore").textContent = "Final Score: " + engine.score + " / " + engine.total +
+                                  " (" + engine.percentage.toFixed(1) + "%)";
+    $("status").textContent = engine.percentage >= 75 ? "PASSED (Great job, Engineer!)" : "NEEDS REVIEW";
+    $("time").textContent = "Time: " + formatTime(seconds);
+    showReview();
+    showScreen("result");
+  } else {
+    showQuestion();
+  }
+}
+
+$("genBtn").onclick = startQuiz;
+$("demoBtn").onclick = () => { $("notes").value = SAMPLE; };
+$("nextBtn").onclick = nextQuestion;
+$("againBtn").onclick = () => showScreen("setup");
+  </script>
+</body>
+</html>
